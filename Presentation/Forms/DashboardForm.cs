@@ -1,306 +1,286 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Reflection;
+using System.Windows.Forms;
 using MiniMartManagement.Models;
 using MiniMartManagement.Services;
 
 namespace MiniMartManagement.Presentation.Forms
 {
-    /// <summary>
-    /// Shown modally after a successful login. The sidebar buttons shown
-    /// depend entirely on what currentUser.CanXxx() returns - the same
-    /// polymorphic checks EmployeeService/ProductService/etc. use to
-    /// authorize actions in Step 5 also decide what the UI even offers.
-    ///
-    /// Unlike Step 8 (where every sidebar button opened its screen in a
-    /// separate popup window via ShowDialog), each sidebar item here swaps
-    /// the corresponding page directly into the content area on the right,
-    /// next to the sidebar, with no popup involved.
-    /// </summary>
-    public class DashboardForm : Form
+    public partial class DashboardForm : Form
     {
-        private readonly AppServices _services;
-        private readonly User _currentUser;
+        private readonly AppServices? _services;
+        private readonly User? _currentUser;
 
+        // Added missing fields referenced by the runtime logic / navigation
         private readonly Dictionary<string, Button> _navButtons = new();
-        private readonly Panel _contentBody = new();
-        private readonly Label _pageTitleLabel = new();
-        private readonly Label _pageSubtitleLabel = new();
-
         private string? _activeKey;
 
-        public DashboardForm(AppServices services, User currentUser)
+        // store each nav button's default background so hover can restore it
+        private readonly Dictionary<Button, Color> _defaultBackColors = new();
+
+        // Parameterless ctor for the Designer. 
+        public DashboardForm()
+        {
+            InitializeComponent();
+            UiTheme.StyleForm(this);
+        }
+
+        // Runtime ctor used by Program.cs
+        public DashboardForm(AppServices services, User currentUser) : this()
         {
             _services = services;
             _currentUser = currentUser;
-            BuildUi();
+
+            Text = _currentUser.GetDashboardTitle();
+            BuildNavButtons();
             Navigate("Dashboard");
         }
 
-        private void BuildUi()
+        private void BuildNavButtons()
         {
-            UiTheme.StyleForm(this);
-            Text = _currentUser.GetDashboardTitle();
-            ClientSize = new Size(1100, 680);
-            StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(860, 560);
-            WindowState = FormWindowState.Maximized;
+            _sidebarFlowPanel.Controls.Clear();
+            _navButtons.Clear();
+            _defaultBackColors.Clear();
 
-            Controls.Add(BuildContentArea());
-            Controls.Add(BuildSidebar());
+            void AddNav(string key, string text, EventHandler onClick)
+            {
+                var btn = new Button
+                {
+                    Text = text,
+                    AutoSize = false,
+                    Height = 40,
+                    Width = 200,
+                    Tag = key,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Margin = new Padding(4)
+                };
+
+                // Apply global theme first (keeps consistent sizing/fonts)
+                UiTheme.StylePrimaryButton(btn);
+
+                // Ensure local visual settings are applied and not ignored by visual styles
+                btn.FlatStyle = FlatStyle.Flat;
+                btn.UseVisualStyleBackColor = false;
+                btn.FlatAppearance.BorderSize = 0;
+
+                // Default (normal) state: Forecolor=Blue & Backcolor=White
+                btn.BackColor = Color.White;
+                btn.ForeColor = Color.Blue;
+
+                // store default back color for this button so hover can restore it
+                _defaultBackColors[btn] = btn.BackColor;
+
+                // hover color (use theme primary so it matches app palette)
+                var hoverBg = UiTheme.Primary;
+                var hoverFg = Color.White;
+
+                // hover behavior: blue background while hovered, revert on leave
+                btn.MouseEnter += (s, e) =>
+                {
+                    // don't change appearance if button is currently active
+                    if (_activeKey == (string?)btn.Tag) return;
+                    btn.BackColor = hoverBg;
+                    btn.ForeColor = hoverFg;
+                };
+                btn.MouseLeave += (s, e) =>
+                {
+                    // restore active or normal visuals
+                    if (_activeKey == (string?)btn.Tag)
+                    {
+                        btn.BackColor = UiTheme.Primary;
+                        btn.ForeColor = Color.White;
+                    }
+                    else if (_defaultBackColors.TryGetValue(btn, out var d))
+                    {
+                        btn.BackColor = d;
+                        btn.ForeColor = Color.Blue;
+                    }
+                };
+
+                btn.Click += onClick;
+                _navButtons[key] = btn;
+                _sidebarFlowPanel.Controls.Add(btn);
+            }
+
+            // Always include Dashboard
+            AddNav("Dashboard", "Dashboard", (_, _) => Navigate("Dashboard"));
+
+            if (_currentUser != null && _currentUser.CanManageEmployees())
+                AddNav("Employees", "Employee Management", (_, _) => Navigate("Employees"));
+
+            if (_currentUser != null && _currentUser.CanManageProductsAndCategories())
+            {
+                AddNav("Products", "Product Management", (_, _) => Navigate("Products"));
+                AddNav("Categories", "Category Management", (_, _) => Navigate("Categories"));
+            }
+
+            if (_currentUser != null && _currentUser.CanManageInventory())
+                AddNav("Inventory", "Inventory", (_, _) => Navigate("Inventory"));
+
+            if (_currentUser != null && _currentUser.CanViewAllSalesReports())
+                AddNav("Reports", "Sales Reports", (_, _) => Navigate("Reports"));
+
+            // Employee-specific items (type-check via Role)
+            if (_currentUser != null && _currentUser.Role == UserRole.Employee)
+            {
+                AddNav("POS", "POS", (_, _) => Navigate("POS"));
+                AddNav("ProductView", "Product List", (_, _) => Navigate("ProductView"));
+                AddNav("MySales", "My Sales", (_, _) => Navigate("MySales"));
+            }
+
+            // Logout
+            var logout = new Button { Text = "Logout", AutoSize = false, Height = 40, Width = 200, Margin = new Padding(4) };
+            UiTheme.StyleDangerButton(logout);
+            logout.Click += (_, _) => { DialogResult = DialogResult.OK; Close(); };
+            _sidebarFlowPanel.Controls.Add(logout);
         }
 
-        private Panel BuildSidebar()
-        {
-            var sidebar = new Panel
-            {
-                Dock = DockStyle.Left,
-                Width = 240,
-                BackColor = UiTheme.SidebarBackground,
-                Padding = new Padding(0)
-            };
-
-            string displayName = _currentUser is Employee employee ? employee.FullName : _currentUser.Username;
-
-            // Top-down flow keeps brand -> profile -> separator -> nav items in exactly
-            // the order they're added, with no risk of a later item landing "above" an
-            // earlier one (which is what Dock=Top stacking is prone to if you're not
-            // careful about add order).
-            var topFlow = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                AutoSize = true
-            };
-
-            var brandLabel = new Label
-            {
-                Text = "MiniMart",
-                AutoSize = false,
-                Size = new Size(240, 60),
-                Font = new Font("Segoe UI", 15, FontStyle.Bold),
-                ForeColor = Color.White,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(20, 0, 0, 0)
-            };
-
-            var profileLabel = new Label
-            {
-                Text = $"{displayName}\n{_currentUser.Role}",
-                AutoSize = false,
-                Size = new Size(240, 54),
-                Font = UiTheme.BaseFont,
-                ForeColor = UiTheme.SidebarSubtleText,
-                TextAlign = ContentAlignment.TopLeft,
-                Padding = new Padding(20, 4, 0, 0)
-            };
-
-            var separator = new Panel { Size = new Size(240, 1), BackColor = UiTheme.SidebarBackgroundHover, Margin = new Padding(0, 8, 0, 8) };
-
-            var navPanel = new FlowLayoutPanel
-            {
-                FlowDirection = FlowDirection.TopDown,
-                WrapContents = false,
-                AutoSize = true,
-                Padding = new Padding(10, 4, 10, 0)
-            };
-
-            navPanel.Controls.Add(CreateSidebarButton("Dashboard", "Dashboard"));
-            foreach (string label in GetMenuItemsForCurrentRole())
-            {
-                navPanel.Controls.Add(CreateSidebarButton(label, label));
-            }
-
-            topFlow.Controls.Add(brandLabel);
-            topFlow.Controls.Add(profileLabel);
-            topFlow.Controls.Add(separator);
-            topFlow.Controls.Add(navPanel);
-
-            var logoutButton = new Button
-            {
-                Text = "Logout",
-                Dock = DockStyle.Bottom,
-                Height = 46,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = UiTheme.SidebarBackground,
-                ForeColor = Color.White,
-                Font = UiTheme.BoldFont,
-                Cursor = Cursors.Hand,
-                TextAlign = ContentAlignment.MiddleCenter
-            };
-            logoutButton.FlatAppearance.BorderSize = 0;
-            logoutButton.FlatAppearance.MouseOverBackColor = UiTheme.Danger;
-            logoutButton.Click += LogoutButton_Click;
-
-            sidebar.Controls.Add(topFlow);
-            sidebar.Controls.Add(logoutButton);
-
-            return sidebar;
-        }
-
-        private Button CreateSidebarButton(string key, string label)
-        {
-            var button = new Button
-            {
-                Text = "   " + label,
-                Size = new Size(210, 42),
-                Margin = new Padding(0, 2, 0, 2),
-                TextAlign = ContentAlignment.MiddleLeft,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = UiTheme.SidebarBackground,
-                ForeColor = UiTheme.SidebarText,
-                Font = UiTheme.BaseFont,
-                Cursor = Cursors.Hand
-            };
-            button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseOverBackColor = UiTheme.SidebarBackgroundHover;
-            button.Click += (_, _) => Navigate(key);
-            _navButtons[key] = button;
-            return button;
-        }
-
-        private Panel BuildContentArea()
-        {
-            var contentArea = new Panel { Dock = DockStyle.Fill, BackColor = UiTheme.Background };
-
-            var headerPanel = new Panel { Dock = DockStyle.Top, Height = 64, BackColor = UiTheme.CardBackground, Padding = new Padding(28, 0, 28, 0) };
-            headerPanel.Paint += (_, e) =>
-            {
-                using var pen = new Pen(UiTheme.Border);
-                e.Graphics.DrawLine(pen, 0, headerPanel.Height - 1, headerPanel.Width, headerPanel.Height - 1);
-            };
-
-            var headerFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = false };
-            _pageTitleLabel.AutoSize = false;
-            _pageTitleLabel.Size = new Size(600, 26);
-            _pageTitleLabel.Font = UiTheme.SubheadingFont;
-            _pageTitleLabel.ForeColor = UiTheme.TextPrimary;
-            _pageTitleLabel.Margin = new Padding(0, 10, 0, 0);
-            _pageSubtitleLabel.AutoSize = false;
-            _pageSubtitleLabel.Size = new Size(600, 18);
-            _pageSubtitleLabel.Font = UiTheme.SmallFont;
-            _pageSubtitleLabel.ForeColor = UiTheme.TextSecondary;
-            headerFlow.Controls.Add(_pageTitleLabel);
-            headerFlow.Controls.Add(_pageSubtitleLabel);
-            headerPanel.Controls.Add(headerFlow);
-
-            _contentBody.Dock = DockStyle.Fill;
-            _contentBody.BackColor = UiTheme.Background;
-
-            contentArea.Controls.Add(_contentBody);
-            contentArea.Controls.Add(headerPanel);
-
-            return contentArea;
-        }
-
-        /// <summary>
-        /// Menu items are driven by the same permission checks the Service
-        /// layer uses - an Employee's CanManageEmployees()/CanManageProductsAndCategories()/
-        /// etc. all return false, so none of the Admin buttons even appear.
-        /// </summary>
-        private List<string> GetMenuItemsForCurrentRole()
-        {
-            var items = new List<string>();
-
-            if (_currentUser is Employee)
-            {
-                items.Add("Point of Sale");
-            }
-
-            if (_currentUser.CanManageEmployees())
-            {
-                items.Add("Employee Management");
-            }
-
-            if (_currentUser.CanManageProductsAndCategories())
-            {
-                items.Add("Category Management");
-                items.Add("Product Management");
-            }
-
-            if (_currentUser.CanManageInventory())
-            {
-                items.Add("Inventory");
-            }
-
-            if (_currentUser.CanViewAllSalesReports())
-            {
-                items.Add("Sales Reports");
-            }
-
-            if (_currentUser is Employee)
-            {
-                items.Add("Product List");
-                items.Add("My Sales History");
-            }
-
-            return items;
-        }
-
-        private static string GetPageSubtitle(string key) => key switch
-        {
-            "Dashboard" => "Overview and quick actions",
-            "Point of Sale" => "Ring up a new sale",
-            "Employee Management" => "Add, edit, and manage staff accounts",
-            "Category Management" => "Organize products into categories",
-            "Product Management" => "Add, edit, and manage the product catalog",
-            "Inventory" => "Track stock levels across all products",
-            "Sales Reports" => "Revenue, best sellers, and stock alerts",
-            "Product List" => "Browse what's available to sell",
-            "My Sales History" => "Sales you've personally processed",
-            _ => string.Empty
-        };
-
-        private void Navigate(string key)
+        public void Navigate(string key)
         {
             if (_activeKey == key) return;
-
-            UserControl? page = key switch
-            {
-                "Dashboard" => new DashboardHomePanel(_services, _currentUser, Navigate),
-                "Employee Management" => new EmployeeManagementPanel(_services, _currentUser),
-                "Category Management" => new CategoryManagementPanel(_services, _currentUser),
-                "Product Management" => new ProductManagementPanel(_services, _currentUser),
-                "Inventory" => new InventoryPanel(_services, _currentUser),
-                "Sales Reports" => new SalesReportPanel(_services, _currentUser),
-                "Point of Sale" => _currentUser is Employee posEmployee ? new POSPanel(_services, posEmployee) : null,
-                "Product List" => new ProductViewPanel(_services),
-                "My Sales History" => _currentUser is Employee salesEmployee ? new MySalesPanel(_services, salesEmployee) : null,
-                _ => null
-            };
-
-            if (page == null) return;
-
-            // Swap the content: dispose the outgoing page (releases its grid/image
-            // handles) only after the new one is safely in place.
-            Control? previous = _contentBody.Controls.Count > 0 ? _contentBody.Controls[0] : null;
-
-            page.Dock = DockStyle.Fill;
-            _contentBody.Controls.Add(page);
-            previous?.Dispose();
+            _activeKey = key;
 
             _pageTitleLabel.Text = key;
-            _pageSubtitleLabel.Text = GetPageSubtitle(key);
-
-            if (_activeKey != null && _navButtons.TryGetValue(_activeKey, out Button? previousButton))
+            _pageSubtitleLabel.Text = key switch
             {
-                previousButton.BackColor = UiTheme.SidebarBackground;
-                previousButton.ForeColor = UiTheme.SidebarText;
-                previousButton.Font = UiTheme.BaseFont;
+                "Dashboard" => "Overview",
+                "Employees" => "Manage employees",
+                "Products" => "Manage products",
+                "Categories" => "Manage categories",
+                "Inventory" => "Inventory & stock",
+                "Reports" => "Sales reports",
+                "POS" => "Point of Sale",
+                "ProductView" => "Product list",
+                "MySales" => "Your sales",
+                _ => string.Empty
+            };
+
+            _contentBody.Controls.Clear();
+
+            // Try to create a real panel for this key (convention: {Key}Panel)
+            var panel = CreatePanelForKey(key);
+            if (panel != null)
+            {
+                panel.Dock = DockStyle.Fill;
+                _contentBody.Controls.Add(panel);
+            }
+            else
+            {
+                // Fallback placeholder (what you've been seeing)
+                var placeholder = new Label
+                {
+                    Text = $"{key} - coming soon",
+                    Dock = DockStyle.Fill,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Font = UiTheme.BaseFont
+                };
+                _contentBody.Controls.Add(placeholder);
             }
 
-            if (_navButtons.TryGetValue(key, out Button? activeButton))
+            // Highlight active nav button: set both BackColor and ForeColor
+            foreach (var kv in _navButtons)
             {
-                activeButton.BackColor = UiTheme.SidebarBackgroundActive;
-                activeButton.ForeColor = Color.White;
-                activeButton.Font = UiTheme.BoldFont;
-            }
+                var btn = kv.Value;
+                if (kv.Key == key)
+                {
+                    btn.BackColor = UiTheme.Primary;
+                    btn.ForeColor = Color.White;             // active text color
+                    btn.Font = new Font(btn.Font, FontStyle.Bold);
+                }
+                else
+                {
+                    // restore to stored default so hover can work consistently
+                    if (_defaultBackColors.TryGetValue(btn, out var d))
+                        btn.BackColor = d;
+                    else
+                        btn.BackColor = Color.White;
 
-            _activeKey = key;
+                    btn.ForeColor = Color.Blue;              // default text color
+                    btn.Font = new Font(btn.Font, FontStyle.Regular);
+                }
+            }
         }
 
-        private void LogoutButton_Click(object? sender, EventArgs e)
+        // Missing field documented in the code comments of DashboardForm.Designer.cs
+        private static readonly Dictionary<string, string> _panelNameMap = new()
         {
-            DialogResult = DialogResult.OK;
-            Close();
+            ["Dashboard"] = "DashboardHomePanel",
+            ["Employees"] = "EmployeeManagementPanel",
+            ["Products"] = "ProductManagementPanel",
+            ["Categories"] = "CategoryManagementPanel",
+            ["Inventory"] = "InventoryPanel",
+            ["Reports"] = "SalesReportPanel",
+            ["POS"] = "POSPanel",
+            ["ProductView"] = "ProductViewPanel",
+            ["MySales"] = "MySalesPanel"
+        };
+
+        // Reflection-based factory: looks for a class named "{key}Panel" in this assembly
+        // and tries to instantiate it using common constructor patterns:
+        // (AppServices, User, Action<string>), (AppServices, User), (AppServices, Action<string>),
+        // (AppServices), (Action<string>), parameterless.
+        private Control? CreatePanelForKey(string key)
+        {
+            var asm = Assembly.GetExecutingAssembly();
+
+            // build candidate type names to try (mapped name first, then sensible fallbacks)
+            var candidates = new List<string>();
+            if (_panelNameMap.TryGetValue(key, out var mapped)) candidates.Add(mapped);
+            candidates.Add($"{key}Panel");
+            candidates.Add($"{key}HomePanel");
+
+            foreach (var name in candidates)
+            {
+                var typeName = $"MiniMartManagement.Presentation.Forms.{name}";
+                var t = asm.GetType(typeName);
+                if (t == null || !typeof(Control).IsAssignableFrom(t)) continue;
+
+                foreach (var ctor in t.GetConstructors())
+                {
+                    var parameters = ctor.GetParameters();
+                    var args = new List<object?>();
+                    var ok = true;
+
+                    foreach (var p in parameters)
+                    {
+                        if (p.ParameterType == typeof(AppServices))
+                        {
+                            if (_services == null) { ok = false; break; }
+                            args.Add(_services);
+                        }
+                        else if (p.ParameterType == typeof(User))
+                        {
+                            if (_currentUser == null) { ok = false; break; }
+                            args.Add(_currentUser);
+                        }
+                        else if (p.ParameterType == typeof(Action<string>))
+                        {
+                            args.Add((Action<string>)Navigate);
+                        }
+                        else
+                        {
+                            ok = false;
+                            break;
+                        }
+                    }
+
+                    if (!ok) continue;
+
+                    try
+                    {
+                        var instance = ctor.Invoke(args.ToArray()) as Control;
+                        if (instance != null) return instance;
+                    }
+                    catch
+                    {
+                        // constructor failed, try next
+                    }
+                }
+            }
+
+            return null;
         }
     }
 }

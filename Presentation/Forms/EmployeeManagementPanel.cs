@@ -5,7 +5,7 @@ using MiniMartManagement.Services.Exceptions;
 namespace MiniMartManagement.Presentation.Forms
 {
     /// <summary>Embedded (not a popup) employee-management page - hosted directly in DashboardForm's content area.</summary>
-    public class EmployeeManagementPanel : UserControl
+    public partial class EmployeeManagementPanel : UserControl
     {
         private readonly AppServices _services;
         private readonly User _currentUser;
@@ -29,6 +29,7 @@ namespace MiniMartManagement.Presentation.Forms
             var topPanel = new Panel { Dock = DockStyle.Top, Height = 45, Padding = new Padding(10, 8, 10, 8) };
             _searchBox.Location = new Point(10, 10);
             _searchBox.Size = new Size(250, 25);
+            
             var searchButton = new Button { Text = "Search", Location = new Point(270, 8), Size = new Size(80, 27) };
             UiTheme.StylePrimaryButton(searchButton);
             var clearButton = new Button { Text = "Clear", Location = new Point(355, 8), Size = new Size(80, 27) };
@@ -48,7 +49,7 @@ namespace MiniMartManagement.Presentation.Forms
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FullName", HeaderText = "Full Name", Width = 150 });
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Phone", HeaderText = "Phone", Width = 100 });
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Email", HeaderText = "Email", Width = 160 });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "HireDate", HeaderText = "Hire Date", Width = 90 });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "HireDate", HeaderText = "Hire Date", Width = 120 });
             _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "Status", Width = 80 });
             UiTheme.StyleGrid(_grid);
 

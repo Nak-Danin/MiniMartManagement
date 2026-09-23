@@ -1,48 +1,40 @@
 namespace MiniMartManagement.Presentation.Forms
 {
-    public class StockAdjustDialog : Form
+    public partial class StockAdjustDialog : Form
     {
-        private readonly NumericUpDown _quantityBox = new();
-
         public int NewQuantity => (int)_quantityBox.Value;
 
-        public StockAdjustDialog(string productName, int currentQuantity)
+        // Parameterless ctor for Designer
+        public StockAdjustDialog()
         {
+            InitializeComponent();
+
             UiTheme.StyleForm(this);
+            UiTheme.StylePrimaryButton(_okButton);
+            UiTheme.StyleSecondaryButton(_cancelButton);
+            AcceptButton = _okButton;
+            CancelButton = _cancelButton;
+        }
+
+        // Runtime ctor
+        public StockAdjustDialog(string productName, int currentQuantity) : this()
+        {
             Text = "Adjust Stock";
-            ClientSize = new Size(320, 190);
-            MinimumSize = new Size(320, 190);
-            StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.Sizable;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            AutoScroll = true;
-
-            Controls.Add(new Label
-            {
-                Text = $"{productName}\nCurrent quantity: {currentQuantity}",
-                Location = new Point(15, 15),
-                Size = new Size(290, 45)
-            });
-
-            Controls.Add(new Label { Text = "New quantity", Location = new Point(15, 65), AutoSize = true });
-            _quantityBox.Location = new Point(15, 85);
-            _quantityBox.Size = new Size(290, 25);
+            _infoLabel.Text = $"{productName}\nCurrent quantity: {currentQuantity}";
             _quantityBox.Maximum = 1_000_000;
             _quantityBox.Value = currentQuantity;
-            Controls.Add(_quantityBox);
+        }
 
-            var okButton = new Button { Text = "Save", Location = new Point(15, 135), Size = new Size(140, 32) };
-            UiTheme.StylePrimaryButton(okButton);
-            var cancelButton = new Button { Text = "Cancel", Location = new Point(165, 135), Size = new Size(140, 32) };
-            UiTheme.StyleSecondaryButton(cancelButton);
-            okButton.Click += (_, _) => { DialogResult = DialogResult.OK; Close(); };
-            cancelButton.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
+        private void OkButton_Click(object? sender, EventArgs e)
+        {
+            DialogResult = DialogResult.OK;
+            Close();
+        }
 
-            Controls.Add(okButton);
-            Controls.Add(cancelButton);
-            AcceptButton = okButton;
-            CancelButton = cancelButton;
+        private void CancelButton_Click(object? sender, EventArgs e)
+        {
+            DialogResult = DialogResult.Cancel;
+            Close();
         }
     }
 }

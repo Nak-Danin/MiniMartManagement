@@ -1,5 +1,6 @@
 using MiniMartManagement.Models;
 using MiniMartManagement.Services;
+using System.Globalization;
 
 namespace MiniMartManagement.Presentation.Forms
 {
@@ -43,7 +44,7 @@ namespace MiniMartManagement.Presentation.Forms
 
             var greetingLabel = new Label
             {
-                Text = $"Welcome back, {displayName}",
+                Text = $"Welcome back, {CultureInfo.CurrentCulture.TextInfo.ToTitleCase(displayName.ToLower())}",
                 AutoSize = false,
                 Size = new Size(760, 34),
                 Font = UiTheme.HeadingFont,
@@ -145,14 +146,14 @@ namespace MiniMartManagement.Presentation.Forms
 
             if (_currentUser is Employee)
             {
-                actions.Add(("New Sale", "Point of Sale"));
-                actions.Add(("Browse Products", "Product List"));
-                actions.Add(("My Sales History", "My Sales History"));
+                actions.Add(("New Sale", "POS"));
+                actions.Add(("Browse Products", "ProductView"));
+                actions.Add(("My Sales History", "MySales"));
             }
 
             if (_currentUser.CanManageProductsAndCategories())
             {
-                actions.Add(("Manage Products", "Product Management"));
+                actions.Add(("Manage Products", "Products"));
             }
 
             if (_currentUser.CanManageInventory())
@@ -162,15 +163,20 @@ namespace MiniMartManagement.Presentation.Forms
 
             if (_currentUser.CanViewAllSalesReports())
             {
-                actions.Add(("View Reports", "Sales Reports"));
+                actions.Add(("View Reports", "Reports"));
             }
 
             if (_currentUser.CanManageEmployees())
             {
-                actions.Add(("Manage Employees", "Employee Management"));
+                actions.Add(("Manage Employees", "Employees"));
             }
 
             return actions;
+        }
+
+        private void InitializeComponent()
+        {
+
         }
 
         private static Panel CreateStatCard(string title, string value, Color accent)
